@@ -1,56 +1,82 @@
 import streamlit as st
-from openai import OpenAI
+import google.generativeai as genai
 
 # Show title and description.
 st.title("💬 Chatbot")
-st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
-)
+# Configure the Gemini API key
+GOOGLE_API_KEY = st.secrets["GEMINI_API_KEY"]
+genai.configure(api_key=GOOGLE_API_KEY)
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
+# Initialize session state variables
+if 'conversation_history' not in st.session_state:
+    st.session_state.conversation_history = []
+if 'knowledge_assessment_done' not in st.session_state:
+    st.session_state.knowledge_assessment_done = False
 
-    # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
+def get_gemini_response(prompt, conversation_history=None):
+    """Sends a prompt to the Gemini API and returns the generated response."""
+    try:
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        if conversation_history is None:
+            chat = model.start_chat(history=[])
+        else:
+            chat = model.start_chat(history=conversation_history)
+        response = chat.send_message(prompt)
+        return response.text
+    except Exception as e:
+        print(f"Error: {e}")
+        return "I'm having trouble connecting to the AI service. Please try again later."
 
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+def assess_user_knowledge():
+    """Asks the user basic questions to gauge their knowledge."""
+    # This is now just a prompt, the actual assessment happens in the main UI
+    return st.radio("Have you used an auto-level before?", ('Yes', 'No'))
 
-    # Display the existing chat messages via `st.chat_message`.
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+def get_response(user_input, has_used_before):
+    """Generates a response based on the user input."""
+    user_input = user_input.lower()
 
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+    #Construct a prompt for Gemini - Use has_used_before info
 
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
+    if has_used_before == "yes":
+        prompt = f"You are a helpful chatbot assisting someone experienced with auto-levels.  Answer the following question concisely:\n\n{user_input}"
+    else:
+        prompt = f"You are a helpful chatbot assisting someone new to auto-levels.  Answer the following question in a clear, simple way:\n\n{user_input}"
+    gpt_response = get_gemini_response(prompt, st.session_state.conversation_history)
+    return gpt_response
+
+# Streamlit UI
+st.title("Explore Auto-Level")
+
+# Display conversation history in a chat-like format
+for chat in st.session_state.conversation_history:
+    if chat["role"] == "user":
         with st.chat_message("user"):
-            st.markdown(prompt)
+            st.markdown(chat["parts"][0])
+    else:
+        with st.chat_message("assistant"):  # Use "assistant" for chatbot
+            st.markdown(chat["parts"][0])
 
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
+#Assess knowledge only once - before chat
+if not st.session_state.knowledge_assessment_done:
+   with st.sidebar:
+        st.session_state.has_used_before = assess_user_knowledge()
+        st.session_state.knowledge_assessment_done = True  #Mark it as done
+else:
+    #Retrieve from session state
+    has_used_before = st.session_state.has_used_before
 
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+# Chat input
+prompt = st.chat_input("Say something")  # Dedicated chat input
+
+if prompt:
+    # Display user message immediately
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    st.session_state.conversation_history.append({"role": "user", "parts": [prompt]})
+
+    # Get and display assistant message
+    response = get_response(prompt, has_used_before) #Pass has_used_before
+    with st.chat_message("assistant"):
+        st.markdown(response)
+    st.session_state.conversation_history.append({"role": "model", "parts": [response]})
