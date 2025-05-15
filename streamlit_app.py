@@ -4,7 +4,7 @@ import google.generativeai as genai
 # Show title and description.
 st.title("💬 Chatbot")
 # Configure the Gemini API key
-GOOGLE_API_KEY = st.secrets["GEMINI_API_KEY"]
+GOOGLE_API_KEY ="AIzaSyABEoJi0SpQrt7iVXKMnyklgnGWXx31sew"
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # Initialize session state variables
